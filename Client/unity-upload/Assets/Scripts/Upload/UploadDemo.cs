@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
@@ -13,7 +14,6 @@ namespace Upload
         public RawImage takePhoto = null; //头像
         public Button takePhoto_btn = null; //上传头像按钮
         public string uploadUrl = "http://localhost:9090/upload"; //上传地址
-        [Range(-1, 2048)] public int maxHeadIconSize = 100; //最大头像尺寸
 
         private string currentPath = null; //当前文件路径
         private Texture2D currentTexture2D = null; //当前图片Texture
@@ -32,48 +32,47 @@ namespace Upload
         /// </summary>
         public void SelectPhoto()
         {
-            //调用插件自带接口，拉取相册，内部有区分平台
-            NativeGallery.Permission permission = NativeGallery.GetImageFromGallery((path) =>
+            PhotoModule.SelectPhoto((path) =>
+            {
+                Debug.LogError("Image path: " + path);
+                if (path != null)
                 {
-                    Debug.LogError("Image path: " + path);
-                    if (path != null)
+                    // 此Action为选取图片后的回调，返回一个Texture2D 
+                    Texture2D texture = NativeGallery.LoadImageAtPath(path, PhotoModule.LoadImageMaxSize);
+                    if (texture == null)
                     {
-                        // 此Action为选取图片后的回调，返回一个Texture2D 
-                        Texture2D texture = NativeGallery.LoadImageAtPath(path, maxHeadIconSize);
-                        if (texture == null)
-                        {
-                            Debug.Log("Couldn't load texture from " + path);
-                            return;
-                        }
-
-                        var setting = new ImageCropper.Settings();
-                        setting.selectionMaxSize = new Vector2(200, 200);
-                        // 检查裁剪器是否已经打开
-                        if (!ImageCropper.Instance.IsOpen)
-                        {
-                            var fileName = FileModule.GetFileNameFromPath(path);
-                            // 开始裁剪图像
-                            ImageCropper.Instance.Show(texture,
-                                (bool result, Texture originalImage, Texture2D croppedImage) =>
-                                {
-                                    if (result)
-                                    {
-                                        // 裁剪成功，处理裁剪后的图像
-                                        Debug.Log("裁剪成功");
-                                        var targetRawImage = selectPhoto;
-                                        var texture2d = FileModule.DeepCopyTexture(croppedImage);
-                                        RefreshPhoto(fileName, "", texture2d, targetRawImage);
-                                    }
-                                    else
-                                    {
-                                        // 裁剪取消
-                                        Debug.Log("裁剪取消");
-                                    }
-                                }, setting);
-                        }
+                        Debug.LogError("Couldn't load texture from " + path);
+                        return;
                     }
+
+                    Vector2 selectionVector = PhotoModule.GetCropperVector2(texture);
+                    Debug.LogError("Texture Width:" + texture.width + ",Texture Height:" + texture.height);
+
+                    var setting = new ImageCropper.Settings();
+                    setting.selectionMinSize = selectionVector;
+                    setting.selectionMaxSize = selectionVector;
+                    setting.pixelPerfectSelection = true;
+
+                    var fileName = FileModule.GetFileNameFromPath(path);
+
+                    PhotoModule.CropperPhoto(texture, setting, (result, originalImage, croppedImage) =>
+                    {
+                        if (result)
+                        {
+                            // 裁剪成功，处理裁剪后的图像
+                            Debug.Log("裁剪成功");
+                            var targetRawImage = selectPhoto;
+                            var texture2d = FileModule.DeepCopyTexture(croppedImage);
+                            RefreshPhoto(fileName, "", texture2d, targetRawImage);
+                        }
+                        else
+                        {
+                            // 裁剪取消
+                            Debug.Log("裁剪取消");
+                        }
+                    });
                 }
-            );
+            });
         }
 
         public void UploadFile()
@@ -123,7 +122,7 @@ namespace Upload
             //         }
             //     }));
             // }
-            
+
             StartCoroutine(FileModule.DownloadFileByUrl(fileUrl, savePath, (fileName, fileData) =>
             {
                 if (fileData != null)
@@ -138,7 +137,7 @@ namespace Upload
 
         public void TakePhoto()
         {
-            NativeCamera.Permission permission = NativeCamera.TakePicture((path) =>
+            PhotoModule.TakePhoto((path) =>
             {
                 if (!string.IsNullOrEmpty(path))
                 {
@@ -147,30 +146,31 @@ namespace Upload
                     var fileName = FileModule.GetFileNameFromPath(path);
                     // var targetRawImage = takePhoto;
                     // RefreshPhoto(fileName, path, texture, targetRawImage);
+
+                    Vector2 selectionVector = PhotoModule.GetCropperVector2(texture);
+                    Debug.LogError("Texture Width:" + texture.width + ",Texture Height:" + texture.height);
+
                     var setting = new ImageCropper.Settings();
-                    setting.selectionMaxSize = new Vector2(200, 200);
-                    // 检查裁剪器是否已经打开
-                    if (!ImageCropper.Instance.IsOpen)
+                    setting.selectionMinSize = selectionVector;
+                    setting.selectionMaxSize = selectionVector;
+                    setting.pixelPerfectSelection = true;
+
+                    PhotoModule.CropperPhoto(texture, setting, (result, originalImage, croppedImage) =>
                     {
-                        // 开始裁剪图像
-                        ImageCropper.Instance.Show(texture,
-                            (bool result, Texture originalImage, Texture2D croppedImage) =>
-                            {
-                                if (result)
-                                {
-                                    // 裁剪成功，处理裁剪后的图像
-                                    Debug.Log("裁剪成功");
-                                    var targetRawImage = takePhoto;
-                                    var texture2d = FileModule.DeepCopyTexture(croppedImage);
-                                    RefreshPhoto(fileName, "", texture2d, targetRawImage);
-                                }
-                                else
-                                {
-                                    // 裁剪取消
-                                    Debug.Log("裁剪取消");
-                                }
-                            }, setting);
-                    }
+                        if (result)
+                        {
+                            // 裁剪成功，处理裁剪后的图像
+                            Debug.Log("裁剪成功");
+                            var targetRawImage = takePhoto;
+                            var texture2d = FileModule.DeepCopyTexture(croppedImage);
+                            RefreshPhoto(fileName, "", texture2d, targetRawImage);
+                        }
+                        else
+                        {
+                            // 裁剪取消
+                            Debug.Log("裁剪取消");
+                        }
+                    });
                 }
                 else
                 {
